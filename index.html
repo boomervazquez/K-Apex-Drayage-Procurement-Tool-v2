@@ -109,7 +109,7 @@ input, select { width: 100%; max-width: 100%; } /* prevent overflow */
 <div class="log" id="log"></div>
 <div class="mini">Routing . OSRM public demo server . Geocoding . Nominatim</div>
 <div class="mini">Prefilter . top 12 by air distance . then route each to pick true nearest by road</div>
-<div class="mini">Cost formula . <code>200 + 3 × roundTripMiles</code></div>
+<div class="mini">Cost formula . <code>200 + RPM(location) × roundTripMiles . min $350 . no quote if roundTrip > 800 mi</code></div>
 </details>
 </div>
 </div>
@@ -192,7 +192,129 @@ const DESTINATIONS = [
   {name:"WORCESTER, MA", type:"IPI", lat:42.224400, lon:-71.790708},
   {name:"EL PASO/SANTA TERESA, NM", type:"IPI", lat:31.752711, lon:-106.493000}
 ];
-
+// Per-location RPM table (from Excel)
+const RPM_BY_LOCATION = {
+  "ATLANTA, GA - CSX & BNSF": 3.0,
+  "ATLANTA, GA - NS AUSTELL": 3.0,
+  "BALTIMORE, MD": 3.5,
+  "BOSTON, MA": 3.5,
+  "BUFFALO, NY": 5.0,
+  "CHARLESTON, SC": 3.0,
+  "CHARLOTTE, NC": 3.0,
+  "CHICAGO, IL  - UP JOLIET INTERMODAL TERMINAL GLOBAL 4 (I206)": 3.0,
+  "CHICAGO, IL -  NORFOLK SOUTHERN - LANDERS (I104)": 3.0,
+  "CHICAGO, IL - BNSF - CHICAGO - LPC (H572)": 3.0,
+  "CHICAGO, IL - CN RAIL - CHICAGO - HARVEY (I092)": 3.0,
+  "CHICAGO, IL - CP RAIL - CHICAGO, BENSENVILLE (J830)": 3.0,
+  "CHICAGO, IL - CSX (J470)": 3.0,
+  "CINCINNATI, OH": 3.0,
+  "CLEVELAND, OH": 3.0,
+  "COLUMBUS, OH": 3.0,
+  "DALLAS BNSF": 3.0,
+  "DALLAS UPRR": 3.0,
+  "DENVER - BNSF DENVER / UP DENVER": 5.0,
+  "DENVER - BNSF HUDSON": 5.0,
+  "DETROIT, MI": 3.0,
+  "EL PASO/SANTA TERESA, NM": 5.0,
+  "GREER, SC": 3.0,
+  "HOUSTON, TX - HOUSTON PORT": 3.0,
+  "INDIANAPOLIS, IN": 5.0,
+  "JACKSONVILLE, FL": 3.0,
+  "KANSAS CITY, KS - BNSF LOGISTICS PARK": 3.0,
+  "KANSAS CITY, KS - CPKC - KANSAS CITY / CSX KANSAS CITY": 3.0,
+  "KANSAS CITY, KS - NS VOLTZ / UP NEFF": 3.0,
+  "LA/LB, CA PORTS": 3.25,
+  "LOUISVILLE, KY": 3.0,
+  "MEMPHIS, TN - BNSF - MEMPHIS (SHELBY)": 3.0,
+  "MEMPHIS, TN - CN - INTERMODAL GATEWAY MEMPHIS": 3.0,
+  "MEMPHIS, TN - CSX - MEMPHIS": 3.0,
+  "MEMPHIS, TN - NS - ROSSVILLE,TN": 3.0,
+  "MEMPHIS, TN - UP - MARION, AR": 3.0,
+  "MIAMI, FL": 4.0,
+  "MINNEAPOLIS, MN / ST. PAUL, MN": 3.0,
+  "MOBILE, AL": 3.0,
+  "NASHVILLE, TN": 3.0,
+  "NEW ORLEANS, LA": 3.25,
+  "NEW YORK, NY": 4.0,
+  "NORFOLK, VA": 3.0,
+  "OAKLAND, CA": 3.5,
+  "OMAHA, NE / COUNCIL BLUFFS, IA": 3.0,
+  "PHILADELPHIA, PA": 5.0,
+  "PITTSBURGH, PA": 5.0,
+  "PORT EVERGLADES, FL": 5.0,
+  "PORTLAND OR": 3.5,
+  "SALT LAKE CITY, UT": 3.0,
+  "SAVANNAH, GA": 3.0,
+  "SEATTLE WA": 3.25,
+  "ST.LOUIS, MO": 3.0,
+  "TACOMA WA": 3.0,
+  "TAMPA, FL": 3.0,
+  "WILMINGTON, NC": 3.0,
+  "WORCESTER, MA": 5.0
+};
+// Normalization + aliasing for facility names
+function _normName(s){
+  if (!s) return "";
+  // Uppercase, trim, collapse spaces
+  let t = String(s).toUpperCase().trim();
+  t = t.replace(/\s+/g, " ");
+  // Replace dots with spaces, remove extra punctuation except comma and ampersand
+  t = t.replace(/[.]/g, " ");
+  t = t.replace(/[^A-Z0-9,&\s\-]/g, ""); // keep letters, digits, comma, ampersand, space, dash
+  t = t.replace(/\s{2,}/g, " ");
+  // Drop common prefixes like "PORT OF", rail prefixes, etc.
+  t = t.replace(/\bPORT OF\s+/g, "");
+  t = t.replace(/\bBNSF\b|\bUP\b|\bNS\b|\bCSX\b|\bCP\b|\bCN\b/g, "").replace(/\s{2,}/g," ").trim();
+  // If format like "CITY, ST - ...", chop at " - "
+  const dash = t.indexOf(" - ");
+  if (dash > -1) t = t.slice(0, dash).trim();
+  // Also remove words like TERMINAL, RAMP, RAIL, YARD at the end
+  t = t.replace(/,?\s+(TERMINAL|RAMP|RAIL|YARD|GATE|PORT|RDC)$/g, "").trim();
+  return t;
+}
+// Precompute a normalized-key map for exact match
+const _RPM_NORM_MAP = (() => {
+  const out = {};
+  for (const k in RPM_BY_LOCATION){
+    if (!Object.prototype.hasOwnProperty.call(RPM_BY_LOCATION, k)) continue;
+    const nk = _normName(k);
+    if (!(nk in out)) out[nk] = k; // first wins
+  }
+  return out;
+})();
+// Heuristic city,ST extractor
+function _extractCityState(s){
+  if (!s) return "";
+  const m = String(s).toUpperCase().match(/([A-Z\s.&]+,\s*[A-Z]{2})/);
+  return m ? m[1].replace(/\s{2,}/g," ").trim() : "";
+}
+function getRpmFor(name){
+  // Try exact as given
+  if (name && Object.prototype.hasOwnProperty.call(RPM_BY_LOCATION, name)) {
+    return RPM_BY_LOCATION[name];
+  }
+  // Normalize and try normalized map
+  const norm = _normName(name);
+  if (norm && _RPM_NORM_MAP[norm]) {
+    return RPM_BY_LOCATION[_RPM_NORM_MAP[norm]];
+  }
+  // Try extracting CITY, ST and lookup
+  const cityst = _extractCityState(name);
+  if (cityst) {
+    const n2 = _normName(cityst);
+    if (_RPM_NORM_MAP[n2]) return RPM_BY_LOCATION[_RPM_NORM_MAP[n2]];
+    if (Object.prototype.hasOwnProperty.call(RPM_BY_LOCATION, cityst)) return RPM_BY_LOCATION[cityst];
+  }
+  // Substring containment . if any key is contained in name or vice versa, take the first
+  const up = String(name || "").toUpperCase();
+  for (const k in RPM_BY_LOCATION){
+    if (!Object.prototype.hasOwnProperty.call(RPM_BY_LOCATION, k)) continue;
+    const uk = k.toUpperCase();
+    if (up.includes(uk) || uk.includes(up)) return RPM_BY_LOCATION[k];
+  }
+  // Default
+  return 3;
+}
 // Geocode . Nominatim
 async function geocodeUS(query){
   const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=us&q=${encodeURIComponent(query)}`;
@@ -299,8 +421,22 @@ async function calculate(){
       assert(dest, "Invalid override selection");
       const oneWay = await osrmMiles(origin, dest);
       const roundTrip = oneWay * 2;
-      const cost = Math.max(350, 200 + 3 * roundTrip);
-      renderResult(dest, oneWay, roundTrip, cost);
+      
+      // Upper limit . no quote over 800 mi round-trip
+      if (roundTrip > 800) {
+        document.getElementById('result').hidden = false;
+        document.getElementById('rName').textContent = dest.name;
+        document.getElementById('rType').textContent = dest.type || '';
+        document.getElementById('rMilesOne').textContent = round(oneWay);
+        document.getElementById('rMilesRound').textContent = round(roundTrip);
+        document.getElementById('rCost').textContent = 'Distance is too large, please choose an alternate routing or reach out to US.KApex.FCL.Trucking@KLN.COM';
+        if (typeof setBadge === 'function') { setBadge('Capped . >800 mi', 'var(--err)'); }
+        if (typeof renderRoute === 'function') { renderRoute(dest); }
+        return;
+      }
+      const rpm = getRpmFor(dest && dest.name ? dest.name : name);
+      const cost = Math.max(350, 200 + rpm * roundTrip);
+renderResult(dest, oneWay, roundTrip, cost);
       assert(oneWay > 0 && roundTrip > 0 && cost > 0, "Computed values are not positive");
       log(`OVERRIDE . ${dest.name} (${dest.type}) . one-way ${round(oneWay)} mi`);
       return;
@@ -332,7 +468,20 @@ async function calculate(){
     const best = results[0];
     const oneWay = best.driveMiles;
     const roundTrip = oneWay * 2;
-    const cost = Math.max(350, 200 + 3 * roundTrip);
+    if (roundTrip > 800) {
+  document.getElementById('result').hidden = false;
+  document.getElementById('rName').textContent = best.name;
+  document.getElementById('rType').textContent = best.type || '';
+  document.getElementById('rMilesOne').textContent = round(oneWay);
+  document.getElementById('rMilesRound').textContent = round(roundTrip);
+  document.getElementById('rCost').textContent = 'Distance is too large, please choose an alternate routing or reach out to US.KApex.FCL.Trucking@KLN.COM';
+  if (typeof setBadge === 'function') { setBadge('Capped . >800 mi', 'var(--err)'); }
+  if (typeof renderRoute === 'function') { renderRoute(best); }
+  return;
+}
+const rpm = getRpmFor(best && best.name ? best.name : '');
+const cost = Math.max(350, 200 + rpm * roundTrip);
+
     renderResult(best, oneWay, roundTrip, cost);
     log(`BEST . ${best.name} (${best.type}) . one-way ${round(oneWay)} mi`);
   }catch(err){
