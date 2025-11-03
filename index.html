@@ -481,7 +481,7 @@ renderResult(dest, oneWay, roundTrip, cost);
   return;
 }
 const rpm = getRpmFor(best && best.name ? best.name : '');
-const cost = Math.max(350, 200 + rpm * roundTrip);
+const cost = Math.max(350, 250 + rpm * roundTrip);
 
     renderResult(best, oneWay, roundTrip, cost);
     log(`BEST . ${best.name} (${best.type}) . one-way ${round(oneWay)} mi`);
