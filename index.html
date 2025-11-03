@@ -443,13 +443,13 @@ renderResult(dest, oneWay, roundTrip, cost);
       return;
     }
 
-    // Auto mode . prefilter by air and route top 12
+    // Auto mode . prefilter by air and route top 5
     setBadge("Geocoded . finding candidates", "var(--orange)");
     const withAir = DESTINATIONS.map(d=>({
       ...d,
       air: haversineMiles({lat:origin.lat, lon:origin.lon}, {lat:d.lat, lon:d.lon})
     })).sort((a,b)=>a.air - b.air);
-    const shortlist = withAir.slice(0, 12);
+    const shortlist = withAir.slice(0, 5);
     log(`CANDIDATES . shortlisted ${shortlist.length} by air miles`);
     assert(shortlist.length > 0, "No destinations available");
 
