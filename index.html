@@ -36,7 +36,16 @@
   .brand{display:flex;align-items:center;gap:14px}
   .brand img{height:44px;max-width:220px;object-fit:contain}
   @media(max-width:780px){.brand img{height:36px}}
+
+
+/* Fix input field overlap in grid */
+*, *::before, *::after { box-sizing: border-box; }
+.grid > * { min-width: 0; } /* allow columns to shrink without overflow */
+.col-5, .col-4, .col-3 { min-width: 0; } /* explicit for safety */
+input, select { width: 100%; max-width: 100%; } /* prevent overflow */
 </style>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
 </head>
 <body>
 <div class="wrap">
@@ -74,6 +83,8 @@
 <div class="stat"><span class="mini">One-way Distance . mi</span><span id="rMilesOne">—</span></div>
 <div class="stat"><span class="mini">Round-trip Distance . mi</span><span id="rMilesRound">—</span></div>
 <div class="stat"><span class="mini">Calculated Cost . USD</span><span id="rCost">—</span></div>
+<div id="routeMap" style="height:320px;border:1px solid #e5e7eb;border-radius:12px;margin:12px 0;display:none"></div>
+
 <!-- Accessorial charges -->
 <div class="access" id="accessorials">
 <h3>Accessorial charges . if applicable</h3>
@@ -123,74 +134,63 @@ function haversineMiles(a,b){
 
 // Data . Full Ports and IPI . with specified removals applied
 const DESTINATIONS = [
-  // West Coast . Ports
-  {name:"Port of Los Angeles", type:"PORT", lat:33.741, lon:-118.254},
-  {name:"Port of Long Beach", type:"PORT", lat:33.770, lon:-118.200},
-  {name:"Port of Oakland", type:"PORT", lat:37.795, lon:-122.279},
-  {name:"Port of Seattle", type:"PORT", lat:47.606, lon:-122.340},
-  {name:"Port of Tacoma", type:"PORT", lat:47.268, lon:-122.412},
-  {name:"Port of Portland OR", type:"PORT", lat:45.583, lon:-122.760},
-  {name:"Port of San Diego", type:"PORT", lat:32.697, lon:-117.173},
-
-  // Gulf and South Atlantic . Ports
-  {name:"Port Houston . Barbours Cut", type:"PORT", lat:29.626, lon:-95.016},
-  {name:"Port Houston . Bayport", type:"PORT", lat:29.602, lon:-95.020},
-  {name:"Port of New Orleans", type:"PORT", lat:29.941, lon:-90.060},
-  {name:"Port of Mobile", type:"PORT", lat:30.708, lon:-88.040},
-  {name:"Port Tampa Bay", type:"PORT", lat:27.905, lon:-82.439},
-  {name:"Port Everglades", type:"PORT", lat:26.088, lon:-80.116},
-  {name:"PortMiami", type:"PORT", lat:25.777, lon:-80.178},
-  {name:"JAXPORT . Jacksonville", type:"PORT", lat:30.389, lon:-81.529},
-  {name:"Port of Savannah . Garden City", type:"PORT", lat:32.147, lon:-81.162},
-  {name:"Port of Charleston . Wando", type:"PORT", lat:32.857, lon:-79.937},
-  {name:"Port of Wilmington NC", type:"PORT", lat:34.224, lon:-77.949},
-
-  // Mid Atlantic . Northeast . Ports
-  {name:"Port of Virginia . Norfolk", type:"PORT", lat:36.946, lon:-76.329},
-  {name:"Port of Baltimore", type:"PORT", lat:39.267, lon:-76.558},
-  {name:"Port of NY . NJ . Newark/Elizabeth", type:"PORT", lat:40.676, lon:-74.150},
-  {name:"Port of Philadelphia . Packer Ave", type:"PORT", lat:39.909, lon:-75.142},
-  {name:"Port of Wilmington DE", type:"PORT", lat:39.729, lon:-75.516},
-  {name:"Port of Boston . Conley", type:"PORT", lat:42.339, lon:-71.026},
-
-  // Inland Rail . West and Mountain
-  {name:"UP . Salt Lake City", type:"IPI", lat:40.732, lon:-111.938},
-  {name:"BNSF . Denver CO", type:"IPI", lat:39.793, lon:-104.980},
-  {name:"UP . Phoenix AZ", type:"IPI", lat:33.412, lon:-112.074},
-  {name:"UP . Las Vegas NV", type:"IPI", lat:36.135, lon:-115.010},
-
-  // Inland Rail . Central and South
-  {name:"BNSF . Alliance TX . DFW", type:"IPI", lat:32.987, lon:-97.316},
-  {name:"UP . Dallas Global 4 . Wilmer", type:"IPI", lat:32.574, lon:-96.663},
-  {name:"UP . San Antonio", type:"IPI", lat:29.370, lon:-98.444},
-  {name:"UP . El Paso", type:"IPI", lat:31.760, lon:-106.410},
-  {name:"BNSF . Kansas City KS", type:"IPI", lat:39.107, lon:-94.657},
-  {name:"UP . Kansas City MO . Neff", type:"IPI", lat:39.099, lon:-94.541},
-  {name:"BNSF . St Louis MO", type:"IPI", lat:38.705, lon:-90.161},
-  {name:"UP . Omaha NE", type:"IPI", lat:41.213, lon:-95.955},
-  {name:"BNSF . Minneapolis MN", type:"IPI", lat:45.060, lon:-93.310},
-
-  // Inland Rail . East and Midwest
-  {name:"BNSF . Cicero IL . Chicago", type:"IPI", lat:41.839, lon:-87.763},
-  {name:"UP . Global 1 . Chicago", type:"IPI", lat:41.881, lon:-87.677},
-  {name:"UP . Global 2 . Northlake IL", type:"IPI", lat:41.913, lon:-87.900},
-  {name:"UP . Global 4 . Joliet IL", type:"IPI", lat:41.506, lon:-88.121},
-  {name:"CSX . Bedford Park IL", type:"IPI", lat:41.767, lon:-87.774},
-  {name:"NS . 47th Street Chicago", type:"IPI", lat:41.808, lon:-87.646},
-  {name:"NS . Landers Chicago", type:"IPI", lat:41.756, lon:-87.715},
-
-  {name:"CSX . Columbus OH", type:"IPI", lat:39.922, lon:-82.959},
-  {name:"NS . Columbus Rickenbacker", type:"IPI", lat:39.811, lon:-82.927},
-  {name:"CSX . Cincinnati OH", type:"IPI", lat:39.261, lon:-84.524},
-  {name:"CSX . Cleveland OH", type:"IPI", lat:41.484, lon:-81.686},
-  {name:"NS . Detroit MI", type:"IPI", lat:42.325, lon:-83.107},
-  {name:"CSX . Pittsburgh PA", type:"IPI", lat:40.444, lon:-79.995},
-  {name:"NS . Harrisburg PA", type:"IPI", lat:40.259, lon:-76.866},
-  {name:"CSX . Worcester MA", type:"IPI", lat:42.247, lon:-71.806},
-  {name:"NS . Ayer . Devens MA", type:"IPI", lat:42.561, lon:-71.590},
-  {name:"NS . Charlotte NC", type:"IPI", lat:35.240, lon:-80.825},
-  {name:"CSX . Rocky Mount NC", type:"IPI", lat:35.932, lon:-77.821},
-  {name:"NS . Atlanta GA", type:"IPI", lat:33.773, lon:-84.438}
+  {name:"ATLANTA, GA - CSX & BNSF", type:"IPI", lat:33.545109, lon:-84.609939},
+  {name:"CHICAGO, IL - CN RAIL - CHICAGO - HARVEY (I092)", type:"IPI", lat:41.582582, lon:-87.646201},
+  {name:"MEMPHIS, TN - CN - INTERMODAL GATEWAY MEMPHIS", type:"IPI", lat:35.031884, lon:-90.151894},
+  {name:"MEMPHIS, TN - CSX - MEMPHIS", type:"IPI", lat:35.031884, lon:-90.151894},
+  {name:"CHICAGO, IL - CP RAIL - CHICAGO, BENSENVILLE (J830)", type:"IPI", lat:41.941386, lon:-87.894674},
+  {name:"CHICAGO, IL - BNSF - CHICAGO - LPC (H572)", type:"IPI", lat:41.393772, lon:-88.152065},
+  {name:"CHICAGO, IL  - UP JOLIET INTERMODAL TERMINAL GLOBAL 4 (I206)", type:"IPI", lat:41.458470, lon:-88.118630},
+  {name:"ATLANTA, GA - NS AUSTELL", type:"IPI", lat:33.822647, lon:-84.651274},
+  {name:"CHICAGO, IL -  NORFOLK SOUTHERN - LANDERS (I104)", type:"IPI", lat:41.756107, lon:-87.683117},
+  {name:"CHICAGO, IL - CSX (J470)", type:"IPI", lat:41.762825, lon:-87.799362},
+  {name:"MEMPHIS, TN - UP - MARION, AR", type:"IPI", lat:35.191874, lon:-90.257432},
+  {name:"HOUSTON, TX - HOUSTON PORT", type:"PORT", lat:29.673630, lon:-95.006670},
+  {name:"DETROIT, MI", type:"IPI", lat:42.316722, lon:-83.133398},
+  {name:"CINCINNATI, OH", type:"IPI", lat:39.121175, lon:-84.537791},
+  {name:"KANSAS CITY, KS - CPKC - KANSAS CITY / CSX KANSAS CITY", type:"IPI", lat:38.859078, lon:-94.559678},
+  {name:"MEMPHIS, TN - BNSF - MEMPHIS (SHELBY)", type:"IPI", lat:35.023622, lon:-89.900600},
+  {name:"NEW YORK, NY", type:"PORT", lat:40.668837, lon:-74.156747},
+  {name:"LA/LB, CA PORTS", type:"PORT", lat:33.782664, lon:-118.217784},
+  {name:"KANSAS CITY, KS - NS VOLTZ / UP NEFF", type:"IPI", lat:39.181953, lon:-94.427906},
+  {name:"MEMPHIS, TN - NS - ROSSVILLE,TN", type:"IPI", lat:35.005260, lon:-89.578705},
+  {name:"KANSAS CITY, KS - BNSF LOGISTICS PARK", type:"IPI", lat:38.767739, lon:-94.984948},
+  {name:"DALLAS UPRR", type:"IPI", lat:32.628501, lon:-96.680962},
+  {name:"COLUMBUS, OH", type:"IPI", lat:39.995573, lon:-82.828357},
+  {name:"LOUISVILLE, KY", type:"IPI", lat:38.114500, lon:-85.759700},
+  {name:"OMAHA, NE / COUNCIL BLUFFS, IA", type:"IPI", lat:41.216343, lon:-95.929840},
+  {name:"SAVANNAH, GA", type:"PORT", lat:32.127400, lon:-81.163200},
+  {name:"CHARLOTTE, NC", type:"IPI", lat:35.272334, lon:-80.908698},
+  {name:"DALLAS BNSF", type:"IPI", lat:32.964963, lon:-97.327672},
+  {name:"ST.LOUIS, MO", type:"IPI", lat:38.601750, lon:-90.315587},
+  {name:"NASHVILLE, TN", type:"IPI", lat:36.101542, lon:-86.756239},
+  {name:"NEW ORLEANS, LA", type:"IPI", lat:29.915698, lon:-90.101184},
+  {name:"WILMINGTON, NC", type:"PORT", lat:34.192767, lon:-77.945727},
+  {name:"NORFOLK, VA", type:"PORT", lat:36.872573, lon:-76.358894},
+  {name:"BALTIMORE, MD", type:"PORT", lat:39.258370, lon:-76.537550},
+  {name:"OAKLAND, CA", type:"PORT", lat:37.796856, lon:-122.304260},
+  {name:"CHARLESTON, SC", type:"PORT", lat:32.840553, lon:-79.953115},
+  {name:"BOSTON, MA", type:"PORT", lat:42.339765, lon:-71.035435},
+  {name:"SALT LAKE CITY, UT", type:"IPI", lat:40.771550, lon:-111.907986},
+  {name:"CLEVELAND, OH", type:"IPI", lat:41.563840, lon:-81.575457},
+  {name:"MOBILE, AL", type:"PORT", lat:30.666587, lon:-88.041873},
+  {name:"GREER, SC", type:"IPI", lat:34.930864, lon:-82.192319},
+  {name:"JACKSONVILLE, FL", type:"PORT", lat:30.394677, lon:-81.540770},
+  {name:"MINNEAPOLIS, MN / ST. PAUL, MN", type:"IPI", lat:44.968859, lon:-93.172196},
+  {name:"TAMPA, FL", type:"PORT", lat:27.919242, lon:-82.431773},
+  {name:"MIAMI, FL", type:"PORT", lat:25.771817, lon:-80.165674},
+  {name:"PORTLAND OR", type:"PORT", lat:45.638177, lon:-122.750626},
+  {name:"PORT EVERGLADES, FL", type:"PORT", lat:26.081660, lon:-80.120584},
+  {name:"SEATTLE WA", type:"PORT", lat:47.573856, lon:-122.348359},
+  {name:"TACOMA WA", type:"PORT", lat:47.266552, lon:-122.410226},
+  {name:"PITTSBURGH, PA", type:"IPI", lat:40.312725, lon:-79.900495},
+  {name:"DENVER - BNSF DENVER / UP DENVER", type:"IPI", lat:39.790500, lon:-104.994500},
+  {name:"DENVER - BNSF HUDSON", type:"IPI", lat:40.067600, lon:-104.628800},
+  {name:"INDIANAPOLIS, IN", type:"IPI", lat:39.746623, lon:-86.164181},
+  {name:"BUFFALO, NY", type:"IPI", lat:42.797787, lon:-78.834263},
+  {name:"PHILADELPHIA, PA", type:"PORT", lat:39.900862, lon:-75.116517},
+  {name:"WORCESTER, MA", type:"IPI", lat:42.224400, lon:-71.790708},
+  {name:"EL PASO/SANTA TERESA, NM", type:"IPI", lat:31.752711, lon:-106.493000}
 ];
 
 // Geocode . Nominatim
@@ -373,5 +373,71 @@ $("copyBtn").addEventListener("click", async ()=>{
 });
 window.addEventListener("load", populateOverride);
 </script>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+
+<script>
+// Route map . non-invasive wrapper
+(function(){
+  let map, routeLayer;
+  function ensure() {
+    const el = document.getElementById("routeMap");
+    if (!map && el) {
+      map = L.map(el);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
+    }
+    return map;
+  }
+  async function draw(origin, dest){
+    try{
+      if(!origin||!dest) return;
+      const el = document.getElementById("routeMap");
+      if(!el) return;
+      el.style.display = "block";
+      ensure();
+      if(routeLayer){ try{ map.removeLayer(routeLayer); }catch(e){} routeLayer=null; }
+      const url = `https://router.project-osrm.org/route/v1/driving/${origin.lon},${origin.lat};${dest.lon},${dest.lat}?overview=full&geometries=geojson`;
+      const r = await fetch(url);
+      if(!r.ok) throw new Error("Routing failed . " + r.status);
+      const j = await r.json();
+      const rt = j && j.routes && j.routes[0];
+      if(!rt || !rt.geometry) throw new Error("No route geometry");
+      routeLayer = L.geoJSON(rt.geometry, { weight: 5 }).addTo(map);
+      const coords = rt.geometry.coordinates.map(c=>[c[1],c[0]]);
+      const b = L.latLngBounds(coords);
+      map.fitBounds(b, { padding:[20,20] });
+    }catch(e){ console && console.warn && console.warn("[routeMap]", e); }
+  }
+
+  // Patch geocode to remember last origin (without editing original)
+  const _geocodeUS = window.geocodeUS;
+  window.geocodeUS = async function(q){
+    const o = await _geocodeUS(q);
+    window.__lastOrigin = o;
+    return o;
+  };
+
+  // Wrap renderResult to also draw the map
+  const _renderResult = window.renderResult;
+  window.renderResult = function(dest, oneWay, roundTrip, cost){
+    try{ _renderResult(dest, oneWay, roundTrip, cost); } finally {
+      try{ if(window.__lastOrigin) draw(window.__lastOrigin, dest); }catch(e){}
+    }
+  };
+
+  // Hide map on reset
+  const resetBtn = document.getElementById("resetBtn");
+  if(resetBtn){
+    resetBtn.addEventListener("click", ()=>{
+      const el = document.getElementById("routeMap");
+      if(el) el.style.display = "none";
+    });
+  }
+})();
+</script>
+
 </body>
 </html>
