@@ -372,6 +372,19 @@ function populateOverride(){
 }
 
 // Render
+function locationAccessorials(name){
+  const raw = String(name || "").toUpperCase();
+  const extra = [];
+  if (raw.includes("OAKLAND, CA")) {
+    extra.push("USOAK Extended Gate Fee - $55");
+  }
+  if (raw.includes("LA/LB, CA PORTS") || raw.includes("PORT OF LOS ANGELES") || raw.includes("PORT OF LONG BEACH")) {
+    extra.push("Clean Truck Fee - $20");
+    extra.push("Pierpass - $80");
+  }
+  return extra;
+}
+
 function renderResult(dest, oneWay, roundTrip, cost){
   $("rName").textContent = dest.name;
   $("rType").textContent = dest.type;
@@ -380,8 +393,30 @@ function renderResult(dest, oneWay, roundTrip, cost){
   $("rCost").textContent = `$${Number(round(cost,2)).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2})}`;
   $("result").hidden = false;
   setBadge("Done", "var(--ok)");
-}
 
+  // Update Accessorials list . base + location-specific
+  const base = [
+    "Prepull - $150",
+    "Yard Storage - $50/day",
+    "Chassis Rental - $50/day",
+    "Chassis Split - $150",
+    "2 Hours free at the Ramp then $80/Hr after",
+    "1 Hour free at warehouse then $100/Hr after",
+    "Overweight fee - $250",
+    "Tri Axle - $150/day",
+    "Reefer Fee - $200",
+  ];
+  const extras = locationAccessorials(dest.name);
+  const ul = document.querySelector("#accessorials ul");
+  if (ul){
+    ul.innerHTML = "";
+    [...base, ...extras].forEach(txt=>{
+      const li = document.createElement("li");
+      li.textContent = txt;
+      ul.appendChild(li);
+    });
+  }
+}
 // Main calculate
 async function calculate(){
   try{
