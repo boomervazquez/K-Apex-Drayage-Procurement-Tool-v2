@@ -613,6 +613,30 @@ window.addEventListener("load", populateOverride);
     }
   };
 
+  <script>
+window.addEventListener('message', (e)=>{
+  // Only trust your own site
+  if (e.origin !== 'https://boomervazquez.github.io') return;
+  const msg = e.data || {};
+  if (msg.type !== 'SET_CITY') return;
+  const val = (msg.city || '').toString();
+
+  // try a few common selectors
+  const el =
+    document.querySelector('#city') ||
+    document.querySelector('#City') ||
+    document.querySelector("input[name='city']");
+
+  if (el) {
+    el.focus();
+    el.value = val;
+    el.dispatchEvent(new Event('input', {bubbles:true}));
+    el.dispatchEvent(new Event('change', {bubbles:true}));
+  }
+});
+</script>
+
+
   // Hide map on reset
   const resetBtn = document.getElementById("resetBtn");
   if(resetBtn){
